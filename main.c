@@ -3,14 +3,20 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>  // for isalnum
 
 #define PORT 8080
 #define BASE_URL "https://obj.melonly.xyz/u/"
+#define MAX_ID_LENGTH 100
+
+// Global curl share for connection reuse
+static CURLSH *curl_share = NULL;
 
 // Struct to hold fetched data
 struct MemoryStruct {
     char *memory;
     size_t size;
+    size_t allocated;
     int is_png; // 1 for png, 0 for jpg
     int done;
 };
@@ -19,10 +25,15 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct *)userp;
 
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if (!ptr) return 0;
+    if (mem->size + realsize >= mem->allocated) {
+        size_t new_allocated = mem->allocated * 2;
+        if (new_allocated < mem->size + realsize) new_allocated = mem->size + realsize + 1;
+        char *ptr = realloc(mem->memory, new_allocated);
+        if (!ptr) return 0;
+        mem->memory = ptr;
+        mem->allocated = new_allocated;
+    }
 
-    mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
     mem->memory[mem->size] = 0;
@@ -34,8 +45,8 @@ int fetch_first_image(const char *id, struct MemoryStruct *result) {
     CURLM *multi = curl_multi_init();
     if (!multi) return 0;
 
-    struct MemoryStruct png_chunk = {malloc(1), 0, 1, 0};
-    struct MemoryStruct jpg_chunk = {malloc(1), 0, 0, 0};
+    struct MemoryStruct png_chunk = {malloc(4096), 0, 4096, 1, 0};
+    struct MemoryStruct jpg_chunk = {malloc(4096), 0, 4096, 0, 0};
 
     CURL *png_curl = curl_easy_init();
     CURL *jpg_curl = curl_easy_init();
@@ -57,6 +68,7 @@ int fetch_first_image(const char *id, struct MemoryStruct *result) {
     curl_easy_setopt(png_curl, CURLOPT_PRIVATE, &png_chunk);
     curl_easy_setopt(png_curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(png_curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(png_curl, CURLOPT_SHARE, curl_share);
 
     curl_easy_setopt(jpg_curl, CURLOPT_URL, jpg_url);
     curl_easy_setopt(jpg_curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
@@ -64,6 +76,7 @@ int fetch_first_image(const char *id, struct MemoryStruct *result) {
     curl_easy_setopt(jpg_curl, CURLOPT_PRIVATE, &jpg_chunk);
     curl_easy_setopt(jpg_curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(jpg_curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(jpg_curl, CURLOPT_SHARE, curl_share);
 
     curl_multi_add_handle(multi, png_curl);
     curl_multi_add_handle(multi, jpg_curl);
@@ -73,7 +86,6 @@ int fetch_first_image(const char *id, struct MemoryStruct *result) {
         CURLMcode mc = curl_multi_perform(multi, &still_running);
         if (mc != CURLM_OK) break;
 
-        // Check for completed transfers
         CURLMsg *msg;
         int msgs_left;
         while ((msg = curl_multi_info_read(multi, &msgs_left))) {
@@ -127,8 +139,21 @@ enum MHD_Result handle_request(void *cls, struct MHD_Connection *connection,
 
     const char *id = url + 1; 
 
+    size_t id_len = strlen(id);
+    if (id_len == 0 || id_len > MAX_ID_LENGTH || strchr(id, '/') || strchr(id, '\\') || strstr(id, "..")) {
+        return MHD_NO;
+    }
+    for (size_t i = 0; i < id_len; ++i) {
+        if (!isalnum(id[i]) && id[i] != '-' && id[i] != '_') {
+            return MHD_NO;
+        }
+    }
+
+    printf("Request for image ID: %s\n", id);
+
     struct MemoryStruct chunk;
     if (!fetch_first_image(id, &chunk)) {
+        printf("Image not found for ID: %s\n", id);
         const char *not_found = "Image not found";
         struct MHD_Response *response = MHD_create_response_from_buffer(strlen(not_found), (void *)not_found, MHD_RESPMEM_PERSISTENT);
         MHD_add_response_header(response, "Content-Type", "text/plain");
@@ -141,6 +166,7 @@ enum MHD_Result handle_request(void *cls, struct MHD_Connection *connection,
     struct MHD_Response *response = MHD_create_response_from_buffer(chunk.size, chunk.memory, MHD_RESPMEM_MUST_FREE);
     MHD_add_response_header(response, "Content-Type", content_type);
     MHD_add_response_header(response, "Cache-Control", "public, max-age=3600");
+    printf("Served %s for ID: %s\n", content_type, id);
     enum MHD_Result ret = MHD_queue_response(connection, MHD_HTTP_OK, response);
     MHD_destroy_response(response);
     return ret;
@@ -149,10 +175,22 @@ enum MHD_Result handle_request(void *cls, struct MHD_Connection *connection,
 int main() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
+    curl_share = curl_share_init();
+    if (!curl_share) {
+        fprintf(stderr, "Failed to init curl share\n");
+        curl_global_cleanup();
+        return 1;
+    }
+    curl_share_setopt(curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+    curl_share_setopt(curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
+    curl_share_setopt(curl_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+
     struct MHD_Daemon *daemon = MHD_start_daemon(MHD_USE_THREAD_PER_CONNECTION | MHD_USE_INTERNAL_POLLING_THREAD, PORT, NULL, NULL,
-                                                 &handle_request, NULL, MHD_OPTION_END);
+                                                 &handle_request, NULL, MHD_OPTION_CONNECTION_TIMEOUT, 30, MHD_OPTION_END);
     if (!daemon) {
         fprintf(stderr, "Failed to start daemon\n");
+        curl_share_cleanup(curl_share);
+        curl_global_cleanup();
         return 1;
     }
 
@@ -160,6 +198,7 @@ int main() {
     getchar();
 
     MHD_stop_daemon(daemon);
+    curl_share_cleanup(curl_share);
     curl_global_cleanup();
     return 0;
 }
