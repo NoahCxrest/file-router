@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>  // for isalnum
+#include <unistd.h>
 
 #define PORT 8080
 #define BASE_URL "https://obj.melonly.xyz/u/"
@@ -195,7 +196,7 @@ int main() {
     }
 
     printf("Server running on port %d\n", PORT);
-    getchar();
+    pause();
 
     MHD_stop_daemon(daemon);
     curl_share_cleanup(curl_share);
