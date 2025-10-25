@@ -3,17 +3,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>  // for isalnum
+#include <ctype.h> 
 #include <unistd.h>
 
 #define PORT 8080
 #define BASE_URL "https://obj.melonly.xyz/u/"
 #define MAX_ID_LENGTH 100
 
-// Global curl share for connection reuse
 static CURLSH *curl_share = NULL;
 
-// Struct to hold fetched data
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -96,18 +94,22 @@ int fetch_first_image(const char *id, struct MemoryStruct *result) {
                 if (chunk && !chunk->done) {
                     chunk->done = 1;
                     if (msg->data.result == CURLE_OK) {
-                        result->memory = chunk->memory;
-                        result->size = chunk->size;
-                        result->is_png = chunk->is_png;
-                        if (chunk == &png_chunk) {
-                            free(jpg_chunk.memory);
-                        } else {
-                            free(png_chunk.memory);
+                        long response_code;
+                        curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &response_code);
+                        if (response_code == 200) {
+                            result->memory = chunk->memory;
+                            result->size = chunk->size;
+                            result->is_png = chunk->is_png;
+                            if (chunk == &png_chunk) {
+                                free(jpg_chunk.memory);
+                            } else {
+                                free(png_chunk.memory);
+                            }
+                            curl_multi_cleanup(multi);
+                            curl_easy_cleanup(png_curl);
+                            curl_easy_cleanup(jpg_curl);
+                            return 1;
                         }
-                        curl_multi_cleanup(multi);
-                        curl_easy_cleanup(png_curl);
-                        curl_easy_cleanup(jpg_curl);
-                        return 1;
                     }
                 }
             }
