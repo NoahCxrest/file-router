@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #define PORT 8080
-#define BASE_URL "https://obj.melonly.xyz/u/"
+#define BASE_URL "http://cdn_zipline:3000/u/"
 #define MAX_ID_LENGTH 100
 
 // Global curl share for connection reuse
