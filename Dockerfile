@@ -1,17 +1,23 @@
-FROM alpine:latest AS builder
+FROM golang:1.21-alpine AS builder
 
-RUN apk add --no-cache gcc musl-dev libmicrohttpd-dev curl-dev
+WORKDIR /app
 
-COPY main.c .
+COPY go.mod go.sum ./
 
-RUN gcc -Wall -O3 -std=c99 -o server main.c -lmicrohttpd -lcurl
+RUN go mod download
+
+COPY . .
+
+RUN go build -o main .
 
 FROM alpine:latest
 
-RUN apk add --no-cache libmicrohttpd curl
+RUN apk --no-cache add ca-certificates
 
-COPY --from=builder server .
+WORKDIR /root/
+
+COPY --from=builder /app/main .
 
 EXPOSE 8080
 
-CMD ["./server"]
+CMD ["./main"]
