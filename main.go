@@ -12,7 +12,7 @@ import (
 
 const (
 	port        = 8080
-	baseURL     = "https://media-routing.melonly.xyz/"
+	baseURL     = "https://obj.melonly.xyz/"
 	maxIDLength = 100
 )
 
