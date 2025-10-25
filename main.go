@@ -12,7 +12,7 @@ import (
 
 const (
 	port        = 8080
-	baseURL     = "https://obj.melonly.xyz/u/"
+	baseURL     = "http://cdn_zipline:3000/u/"
 	maxIDLength = 100
 )
 
