@@ -66,23 +66,32 @@ func fetchImage(ctx context.Context, url string) fetchResult {
 func fetchFirstImage(id string) fetchResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	webpURL := baseURL + id + ".webp"
 	pngURL := baseURL + id + ".png"
 	jpgURL := baseURL + id + ".jpg"
-	ch := make(chan fetchResult, 2)
+	ch := make(chan fetchResult, 3)
+	go func() {
+		ch <- fetchImage(ctx, webpURL)
+	}()
 	go func() {
 		ch <- fetchImage(ctx, pngURL)
 	}()
 	go func() {
 		ch <- fetchImage(ctx, jpgURL)
 	}()
-	var pngResult, jpgResult fetchResult
-	for i := 0; i < 2; i++ {
+	var webpResult, pngResult, jpgResult fetchResult
+	for i := 0; i < 3; i++ {
 		result := <-ch
-		if strings.HasSuffix(result.url, ".png") {
+		if strings.HasSuffix(result.url, ".webp") {
+			webpResult = result
+		} else if strings.HasSuffix(result.url, ".png") {
 			pngResult = result
 		} else {
 			jpgResult = result
 		}
+	}
+	if webpResult.err == nil && strings.HasPrefix(webpResult.contentType, "image/") {
+		return webpResult
 	}
 	if pngResult.err == nil && strings.HasPrefix(pngResult.contentType, "image/") {
 		return pngResult
