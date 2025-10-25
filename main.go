@@ -28,14 +28,11 @@ func isValidID(id string) bool {
 		return false
 	}
 	for _, r := range id {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' || r == '.') {
 			return false
 		}
 	}
-	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
-		return false
-	}
-	return true
+	return !strings.Contains(id, "..")
 }
 
 func fetchImage(ctx context.Context, url string) fetchResult {
@@ -66,6 +63,16 @@ func fetchImage(ctx context.Context, url string) fetchResult {
 func fetchFirstImage(id string) fetchResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if strings.Contains(id, "/") {
+		// Treat as full path
+		url := baseURL + id
+		result := fetchImage(ctx, url)
+		if result.err == nil && strings.HasPrefix(result.contentType, "image/") {
+			return result
+		}
+		return fetchResult{err: fmt.Errorf("no valid image found")}
+	}
+	// Try extensions
 	webpURL := baseURL + id + ".webp"
 	pngURL := baseURL + id + ".png"
 	jpgURL := baseURL + id + ".jpg"
@@ -90,6 +97,7 @@ func fetchFirstImage(id string) fetchResult {
 			jpgResult = result
 		}
 	}
+	// Prefer WebP, then PNG, then JPG
 	if webpResult.err == nil && strings.HasPrefix(webpResult.contentType, "image/") {
 		return webpResult
 	}
