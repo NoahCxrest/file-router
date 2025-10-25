@@ -12,7 +12,7 @@ import (
 
 const (
 	port        = 8080
-	baseURL     = "http://cdn_zipline:3000/u/"
+	baseURL     = "https://media-routing.melonly.xyz/"
 	maxIDLength = 100
 )
 
@@ -63,7 +63,7 @@ func fetchImage(ctx context.Context, url string) fetchResult {
 func fetchFirstImage(id string) fetchResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if strings.Contains(id, "/") {
+	if strings.Contains(id, "/") || strings.HasSuffix(id, ".webp") || strings.HasSuffix(id, ".png") || strings.HasSuffix(id, ".jpg") || strings.HasSuffix(id, ".jpeg") {
 		// Treat as full path
 		url := baseURL + id
 		result := fetchImage(ctx, url)
