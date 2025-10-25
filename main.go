@@ -19,6 +19,7 @@ const (
 type fetchResult struct {
 	data        []byte
 	contentType string
+	url         string
 	err         error
 }
 
@@ -59,7 +60,7 @@ func fetchImage(ctx context.Context, url string) fetchResult {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	return fetchResult{data: data, contentType: contentType}
+	return fetchResult{data: data, contentType: contentType, url: url}
 }
 
 func fetchFirstImage(id string) fetchResult {
@@ -74,13 +75,22 @@ func fetchFirstImage(id string) fetchResult {
 	go func() {
 		ch <- fetchImage(ctx, jpgURL)
 	}()
+	var pngResult, jpgResult fetchResult
 	for i := 0; i < 2; i++ {
 		result := <-ch
-		if result.err == nil {
-			return result
+		if strings.HasSuffix(result.url, ".png") {
+			pngResult = result
+		} else {
+			jpgResult = result
 		}
 	}
-	return fetchResult{err: fmt.Errorf("both requests failed")}
+	if pngResult.err == nil && strings.HasPrefix(pngResult.contentType, "image/") {
+		return pngResult
+	}
+	if jpgResult.err == nil && strings.HasPrefix(jpgResult.contentType, "image/") {
+		return jpgResult
+	}
+	return fetchResult{err: fmt.Errorf("no valid image found")}
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
